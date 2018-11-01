@@ -67,15 +67,8 @@ class KNNClassifier(
 }
 
 fun validate(clf: KNNClassifier, X: List<Vector>, y: List<Int>, cv: Int = 10): Double {
-//    val (partsX, partsY) = (X zip y).shuffled()
-//            .withIndex()
-//            .groupBy { it.index % cv }.values
-//            .map { it.map { indexed -> indexed.value } }
-//            .map { it.unzip() }
-//            .unzip()
-
-    val class_count = y.max()!!
-    val classes = Array<ArrayList<Vector>>(class_count + 1) { ArrayList() }
+    val classCount = y.max()!!
+    val classes = Array<ArrayList<Vector>>(classCount + 1) { ArrayList() }
     val partsX = ArrayList<ArrayList<Vector>>()
     val partsY = ArrayList<ArrayList<Int>>()
     for (i in (0 until cv)) {
@@ -86,7 +79,7 @@ fun validate(clf: KNNClassifier, X: List<Vector>, y: List<Int>, cv: Int = 10): D
         classes[c].add(x)
     }
     var pos = 0
-    for (i in (1..class_count)) {
+    for (i in (1..classCount)) {
         for (x in classes[i]) {
             partsX[pos].add(x)
             partsY[pos].add(i)
@@ -168,11 +161,12 @@ fun main(args: Array<String>) {
         var bMetric = "euclidean"
         var bKernel = "triangular"
         var bestScore = -100.0
-        for (neighbors in listOf(1, 2, 3, 4, 5, 7)) {
-            for (kernel in listOf("uniform", "triangular", "parabolic", "biweight", "triweight", "tricube")) {
+        for (neighbors in listOf(5, 4, 3, 2)) {
+            for (kernel in listOf("triangular", "uniform", "parabolic", "biweight", "triweight", "tricube")) {
                 for (metric in listOf("euclidean", "manhattan")) {
                     val clf = KNNClassifier(neighbors = neighbors, kernel = kernel, metric = metric)
                     val score = validate(clf, X, y, 5)
+//                    print("$score ")
                     if (score > bestScore) {
                         bestScore = score
                         bNeighbors = neighbors
@@ -182,6 +176,7 @@ fun main(args: Array<String>) {
                 }
             }
         }
+        println()
 
         val testSize = it.readLine()?.toInt()!!
         val testX = ArrayList<Vector>()
