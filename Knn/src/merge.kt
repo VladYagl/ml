@@ -55,6 +55,10 @@ class KNNClassifier(
                 "parabolic" -> 0.75 * (1 - dist * dist)
                 "biweight" -> 0.9375 * (1 - dist * dist) * (1 - dist * dist)
                 "triweight" -> 1.09375 * (1 - dist * dist) * (1 - dist * dist) * (1 - dist * dist)
+                "tricube" -> {
+                    val a = abs(dist)
+                    70 / 81 * (1 - a * a * a) * (1 - a * a * a) * (1 - a * a * a)
+                }
                 else -> throw Exception("Bad kernel = $kernel")
             }
         }
@@ -62,16 +66,43 @@ class KNNClassifier(
     }
 }
 
-fun crossValidation(clf: KNNClassifier, X: List<Vector>, y: List<Int>, cv: Int = 10): Double {
-    val (partsX, partsY) = (X zip y).shuffled()
-            .withIndex()
-            .groupBy { it.index % cv }.values
-            .map { it.map { indexed -> indexed.value } }
-            .map { it.unzip() }
-            .unzip()
+fun validate(clf: KNNClassifier, X: List<Vector>, y: List<Int>, cv: Int = 10): Double {
+//    val (partsX, partsY) = (X zip y).shuffled()
+//            .withIndex()
+//            .groupBy { it.index % cv }.values
+//            .map { it.map { indexed -> indexed.value } }
+//            .map { it.unzip() }
+//            .unzip()
 
-    clf.fit(partsX.drop(1).flatten(), partsY.drop(1).flatten())
-    return fScore(clf.predict(partsX.first()).map { partsY.drop(1).flatten()[it.first().first] }, partsY.first())
+    val class_count = y.max()!!
+    val classes = Array<ArrayList<Vector>>(class_count + 1) { ArrayList() }
+    val partsX = ArrayList<ArrayList<Vector>>()
+    val partsY = ArrayList<ArrayList<Int>>()
+    for (i in (0 until cv)) {
+        partsX.add(ArrayList())
+        partsY.add(ArrayList())
+    }
+    for ((x, c) in (X zip y)) {
+        classes[c].add(x)
+    }
+    var pos = 0
+    for (i in (1..class_count)) {
+        for (x in classes[i]) {
+            partsX[pos].add(x)
+            partsY[pos].add(i)
+            pos++
+            pos %= cv
+        }
+    }
+
+    return (0 until cv).sumByDouble { i ->
+        val testX = partsX[i]
+        val testY = partsY[i]
+        val trainX = partsX.filterIndexed { index, _ -> index != i }.flatten()
+        val trainY = partsY.filterIndexed { index, _ -> index != i }.flatten()
+        clf.fit(trainX, trainY)
+        fScore(clf.predict(testX).map { trainY[it.first().first] }, testY)
+    } / cv
 }
 
 fun fScore(expected: List<Int>, predicted: List<Int>): Double {
@@ -97,8 +128,9 @@ fun fScore(expected: List<Int>, predicted: List<Int>): Double {
     var precision = 0.0
     var recall = 0.0
     for (i in (1 until classes)) {
-        precision += count[i] * (if (count[i] == 0) 0.0 else tp[i].toDouble() / count[i])
-        recall += count[i] * (if (tp[i] + fn[i] == 0) 0.0 else tp[i].toDouble() / tp[i] + fn[i])
+        val t = tp[i] + fn[i]
+        if (tp[i] + fp[i] != 0) precision += t * tp[i].toDouble() / (tp[i] + fp[i])
+        if (tp[i] + fn[i] != 0) recall += t * tp[i].toDouble() / (tp[i] + fn[i])
     }
     precision /= sum
     recall /= sum
@@ -110,8 +142,17 @@ fun fScore(expected: List<Int>, predicted: List<Int>): Double {
 }
 
 fun main(args: Array<String>) {
-    System.`in`.bufferedReader().use { it ->
-        //    File("tests/01").bufferedReader().use { it ->
+    val test = "04"
+//    for (test in listOf("01", "02", "03", "04", "05", "06", "07")) {
+    val debug: Boolean
+    val bufferedReader = if (args.isNotEmpty() && args.first() == "debug") {
+        debug = true
+        File("tests/$test").bufferedReader()
+    } else {
+        debug = false
+        System.`in`.bufferedReader()
+    }
+    bufferedReader.use { it ->
         val features = it.readLine()?.toInt()!!
         val classes = it.readLine()?.toInt()!!
         val objects = it.readLine()?.toInt()!!
@@ -127,11 +168,11 @@ fun main(args: Array<String>) {
         var bMetric = "euclidean"
         var bKernel = "triangular"
         var bestScore = -100.0
-        for (neighbors in listOf(1, 2, 3, 5, 7, 8, 10, 15, 20)) {
-            for (kernel in listOf("uniform", "triangular", "parabolic", "biweight", "triweight")) {
+        for (neighbors in listOf(1, 2, 3, 4, 5, 7)) {
+            for (kernel in listOf("uniform", "triangular", "parabolic", "biweight", "triweight", "tricube")) {
                 for (metric in listOf("euclidean", "manhattan")) {
                     val clf = KNNClassifier(neighbors = neighbors, kernel = kernel, metric = metric)
-                    val score = crossValidation(clf, X, y)
+                    val score = validate(clf, X, y, 5)
                     if (score > bestScore) {
                         bestScore = score
                         bNeighbors = neighbors
@@ -152,9 +193,20 @@ fun main(args: Array<String>) {
         clf.fit(X, y)
 
         val predictions = clf.predict(testX)
-        for (prediction in predictions) {
-            print(prediction.size)
-            println(prediction.joinToString(separator = " ", prefix = " ") { "%d %.3f".format(it.first + 1, it.second) })
+        if (debug) {
+            val lines = File("tests/$test.a").bufferedReader().readLines()
+            val correct = lines.dropLast(1).map(String::toInt).toList()
+            val fscore = lines.last().toDouble()
+            val my = predictions.map { y[it.first().first] }
+//            println((my zip correct).joinToString("\n"))
+
+            println("""my score = ${fScore(correct, my)} threshold =  $fscore metric = $bMetric kernel = $bKernel neighbors = $bNeighbors""")
+        } else {
+            for (prediction in predictions) {
+                print(prediction.size)
+                println(prediction.joinToString(separator = " ", prefix = " ") { "%d %.3f".format(it.first + 1, it.second) })
+            }
         }
     }
 }
+//}
