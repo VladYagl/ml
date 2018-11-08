@@ -11,6 +11,7 @@ class KNNClassifier(
         private val neighbors: Int = 5,
         private val window_size: Double = -1.0,
         private val kernel: String = "triangular",
+        
         private val metric: String = "euclidean"
 ) {
     private lateinit var data: List<Vector>
